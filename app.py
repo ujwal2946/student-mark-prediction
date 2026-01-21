@@ -8,9 +8,47 @@ import time
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+import json
 
 warnings.filterwarnings("ignore")
 st.set_page_config(page_title="Student Exam Score Predictor", layout="wide", page_icon="📊")
+
+# ----------------- PERSISTENT STORAGE FUNCTIONS ----------------- #
+def save_history_to_file():
+    """Save history to a local JSON file"""
+    try:
+        history_data = {
+            "history": st.session_state["history"],
+            "favorites": st.session_state["favorites"],
+            "last_saved": datetime.now().isoformat()
+        }
+        with open("student_predictions_data.json", "w") as f:
+            json.dump(history_data, f, indent=2)
+        return True
+    except Exception as e:
+        st.error(f"Error saving history to file: {e}")
+        return False
+
+def load_history_from_file():
+    """Load history from local JSON file"""
+    try:
+        if os.path.exists("student_predictions_data.json"):
+            with open("student_predictions_data.json", "r") as f:
+                history_data = json.load(f)
+            st.session_state["history"] = history_data.get("history", [])
+            st.session_state["favorites"] = history_data.get("favorites", [])
+            return True
+    except Exception as e:
+        st.error(f"Error loading history from file: {e}")
+    return False
+
+def save_history():
+    """Save history to persistent storage"""
+    return save_history_to_file()
+
+def load_history():
+    """Load history from persistent storage"""
+    return load_history_from_file()
 
 # ----------------- MODEL LOADING ----------------- #
 model_path = "best_model.pkl"
@@ -108,6 +146,14 @@ if "analyze_config" not in st.session_state:
     st.session_state["analyze_config"] = None
 if "displayed_prediction" not in st.session_state:
     st.session_state["displayed_prediction"] = False
+if "persistent_loaded" not in st.session_state:
+    st.session_state["persistent_loaded"] = False
+
+# Load persistent data on first run
+if not st.session_state["persistent_loaded"]:
+    if load_history():
+        st.success("📁 Loaded previous session data!")
+    st.session_state["persistent_loaded"] = True
 
 # ----------------- DEFAULT VALUES ----------------- #
 defaults = {
@@ -244,6 +290,8 @@ def add_timestamp_to_history():
             st.session_state["history"][-1]["Sleep Hours"],
             st.session_state["history"][-1]["Part-time Job"]
         )
+        # Save to persistent storage after adding new entry
+        save_history()
 
 def show_simple_analysis(idx):
     """Show simple and understandable analysis for a specific history entry"""
@@ -356,7 +404,7 @@ def show_predictions_table():
     """Show predictions with delete option"""
     for idx, row in enumerate(st.session_state["history"]):
         with st.container():
-            col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
+            col1, col2, col3, col4, col5 = st.columns([3, 2, 1, 1, 1])
             
             with col1:
                 profile = row.get('Study Profile', get_study_profile(
@@ -391,11 +439,27 @@ def show_predictions_table():
                         st.session_state["favorites"].remove(idx)
                     else:
                         st.session_state["favorites"].append(idx)
+                    save_history()
                     st.rerun()
             
             with col4:
                 if st.button("📊", key=f"analyze_{idx}", help="View detailed analysis"):
                     st.session_state["analyze_config"] = idx
+                    st.rerun()
+            
+            with col5:
+                if st.button("🗑️", key=f"delete_{idx}", help="Delete this entry"):
+                    # Remove from history
+                    st.session_state["history"].pop(idx)
+                    # Remove from favorites if present
+                    if idx in st.session_state["favorites"]:
+                        st.session_state["favorites"].remove(idx)
+                    # Adjust other favorites indices
+                    st.session_state["favorites"] = [
+                        fav_idx if fav_idx < idx else fav_idx - 1 
+                        for fav_idx in st.session_state["favorites"]
+                    ]
+                    save_history()
                     st.rerun()
 
 def show_favorites_section():
@@ -531,6 +595,12 @@ def show_enhanced_history_section():
         </div>
         """, unsafe_allow_html=True)
         
+        # Show data info
+        if "last_saved" in st.session_state.get("history", [{}])[-1]:
+            last_entry = st.session_state["history"][-1]
+            if "Timestamp" in last_entry:
+                st.caption(f"📅 Last prediction: {last_entry['Timestamp']} • Total predictions: {len(st.session_state['history'])}")
+        
         tab1, tab2, tab3 = st.tabs(["📋 All Predictions", "⭐ Favorites", "🔍 Compare"])
         
         with tab1:
@@ -624,9 +694,11 @@ else:
                 st.rerun()
         
         with col3:
-            if st.button("🗑️ Clear History", use_container_width=True):
+            if st.button("🗑️ Clear All History", use_container_width=True):
                 st.session_state["history"] = []
                 st.session_state["favorites"] = []
+                st.session_state["displayed_prediction"] = False
+                save_history()
                 st.rerun()
 
     with col_dashboard:
@@ -656,4 +728,9 @@ else:
 
 # ----------------- FOOTER ----------------- #
 st.divider()
-st.markdown("<div style='text-align:center; color:#888;'><p>👨‍💻 Developed by Ujwal | 📊 Student Performance Predictor</p></div>", unsafe_allow_html=True)
+st.markdown("""
+<div style='text-align:center; color:#888;'>
+    <p>👨‍💻 Developed by Ujwal | 📊 Student Performance Predictor</p>
+    <p style='font-size: 12px;'>💾 History is automatically saved and will persist between sessions</p>
+</div>
+""", unsafe_allow_html=True)
