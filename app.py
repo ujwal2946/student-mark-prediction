@@ -8,100 +8,9 @@ import time
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
-import json
-import base64
 
 warnings.filterwarnings("ignore")
 st.set_page_config(page_title="Student Exam Score Predictor", layout="wide", page_icon="📊")
-
-# ----------------- PERSISTENT STORAGE FUNCTIONS ----------------- #
-def save_history_to_file():
-    """Save history to a local JSON file"""
-    try:
-        history_data = {
-            "history": st.session_state["history"],
-            "favorites": st.session_state["favorites"],
-            "last_saved": datetime.now().isoformat()
-        }
-        with open("student_predictions_data.json", "w") as f:
-            json.dump(history_data, f, indent=2)
-        return True
-    except Exception as e:
-        st.error(f"Error saving history to file: {e}")
-        return False
-
-def load_history_from_file():
-    """Load history from local JSON file"""
-    try:
-        if os.path.exists("student_predictions_data.json"):
-            with open("student_predictions_data.json", "r") as f:
-                history_data = json.load(f)
-            st.session_state["history"] = history_data.get("history", [])
-            st.session_state["favorites"] = history_data.get("favorites", [])
-            return True
-    except Exception as e:
-        st.error(f"Error loading history from file: {e}")
-    return False
-
-def save_history_to_query_params():
-    """Save history to URL query parameters (limited storage)"""
-    try:
-        if st.session_state["history"]:
-            # Convert history to JSON and then to base64 for URL safety
-            history_data = {
-                "h": st.session_state["history"],
-                "f": st.session_state["favorites"],
-                "t": datetime.now().isoformat()
-            }
-            history_json = json.dumps(history_data)
-            history_b64 = base64.b64encode(history_json.encode()).decode()
-            
-            # Set query parameters
-            st.query_params["data"] = history_b64
-        return True
-    except Exception as e:
-        # Silently fail for query params - it's just a backup
-        return False
-
-def load_history_from_query_params():
-    """Load history from URL query parameters"""
-    try:
-        if "data" in st.query_params:
-            history_b64 = st.query_params["data"]
-            history_json = base64.b64decode(history_b64).decode()
-            history_data = json.loads(history_json)
-            
-            st.session_state["history"] = history_data.get("h", [])
-            st.session_state["favorites"] = history_data.get("f", [])
-            return True
-    except Exception as e:
-        # Silently fail for query params - it's just a backup
-        pass
-    return False
-
-def save_history():
-    """Save history using multiple methods for persistence"""
-    # Save to file (primary method)
-    file_success = save_history_to_file()
-    
-    # Also save to query params as backup
-    param_success = save_history_to_query_params()
-    
-    return file_success or param_success
-
-def load_history():
-    """Load history using multiple methods"""
-    # Try file first
-    if load_history_from_file():
-        return True
-    
-    # If file doesn't exist, try query params
-    if load_history_from_query_params():
-        # If loaded from params, save to file for future
-        save_history_to_file()
-        return True
-    
-    return False
 
 # ----------------- MODEL LOADING ----------------- #
 model_path = "best_model.pkl"
@@ -184,7 +93,7 @@ else:
         model = FallbackModel()
         model_name = "Enhanced Fallback Model"
 
-# ----------------- SESSION STATE INITIALIZATION ----------------- #
+# ----------------- SESSION STATE ----------------- #
 if "history" not in st.session_state:
     st.session_state["history"] = []
 if "prediction" not in st.session_state:
@@ -197,22 +106,11 @@ if "favorites" not in st.session_state:
     st.session_state["favorites"] = []
 if "analyze_config" not in st.session_state:
     st.session_state["analyze_config"] = None
-if "persistent_loaded" not in st.session_state:
-    st.session_state["persistent_loaded"] = False
 if "displayed_prediction" not in st.session_state:
     st.session_state["displayed_prediction"] = False
-if "show_balloons" not in st.session_state:
-    st.session_state["show_balloons"] = False
-
-# Load persistent data on first run
-if not st.session_state["persistent_loaded"]:
-    if load_history():
-        st.success("📁 Loaded previous session data!")
-    st.session_state["persistent_loaded"] = True
 
 # ----------------- DEFAULT VALUES ----------------- #
 defaults = {
-    "student_name": "Student",
     "study_hours": 2.0,
     "attendance": 80,
     "mental_health": 5,
@@ -227,33 +125,6 @@ def glow_color(score):
     elif score < 85: return "#4caf50"
     elif score < 95: return "#2196f3"
     else: return "#9c27b0"
-
-def input_glow_color(value, input_type):
-    """Return glow colors based on input quality"""
-    if input_type == "study_hours":
-        if value >= 4: return "#4caf50"  # Green - optimal
-        elif value >= 2: return "#ffa500"  # Orange - moderate
-        else: return "#ff4b4b"  # Red - low
-    
-    elif input_type == "attendance":
-        if value >= 90: return "#4caf50"  # Green - excellent
-        elif value >= 75: return "#ffa500"  # Orange - good
-        else: return "#ff4b4b"  # Red - poor
-    
-    elif input_type == "mental_health":
-        if value >= 8: return "#4caf50"  # Green - strong
-        elif value >= 6: return "#ffa500"  # Orange - moderate
-        else: return "#ff4b4b"  # Red - weak
-    
-    elif input_type == "sleep_hours":
-        if 7 <= value <= 8: return "#4caf50"  # Green - optimal
-        elif 6 <= value <= 9: return "#ffa500"  # Orange - moderate
-        else: return "#ff4b4b"  # Red - poor
-    
-    elif input_type == "part_time_job":
-        return "#4caf50" if value == "No" else "#ffa500"  # Green for No, Orange for Yes
-    
-    return "#00b4d8"  # Default blue
 
 def feedback_text(score):
     if score < 50: return "Needs Improvement"
@@ -293,49 +164,75 @@ def get_study_profile(study_hours, attendance, mental_health, sleep_hours, part_
     else:
         return "📊 Average Performer"
 
-def display_countup_score(prediction, student_name):
-    """Display score with countup animation only once"""
-    if st.session_state["displayed_prediction"]:
-        # If already displayed, show static version
-        color = glow_color(prediction)
-        feedback = feedback_text(prediction)
-        st.markdown(f"""
+def display_countup_score(prediction):
+    """Display score with countup animation"""
+    color = glow_color(prediction)
+    feedback = feedback_text(prediction)
+    placeholder = st.empty()
+    step = max(1, int(prediction / 50))
+    
+    for i in range(0, int(prediction) + 1, step):
+        html_content = f"""
         <div style='text-align:center; padding:30px; margin-top:10px; border-radius:15px;
                     background: linear-gradient(135deg, #1f1f2e, #2e2e3e);
                     box-shadow: 0 0 20px {color}, 0 0 40px {color};
                     color:white; position:relative; min-height:120px'>
-            <h3 style='color:#00b4d8; margin-bottom:10px;'>🎓 {student_name}'s Predicted Score</h3>
             <h1 style='color:{color}; text-shadow: 0 0 15px {color}, 0 0 30px {color}; font-size:48px; font-weight:bold'>
-                {prediction:.1f}%
+                {i:.0f}%
             </h1>
             <h3 style='color:{color}; margin-top:10px;'>{feedback}</h3>
         </div>
-        """, unsafe_allow_html=True)
-    else:
-        # First time display - show animation
-        color = glow_color(prediction)
-        feedback = feedback_text(prediction)
-        placeholder = st.empty()
-        step = max(1, int(prediction / 50))
-        
-        for i in range(0, int(prediction) + 1, step):
-            html_content = f"""
-            <div style='text-align:center; padding:30px; margin-top:10px; border-radius:15px;
-                        background: linear-gradient(135deg, #1f1f2e, #2e2e3e);
-                        box-shadow: 0 0 20px {color}, 0 0 40px {color};
-                        color:white; position:relative; min-height:120px'>
-                <h3 style='color:#00b4d8; margin-bottom:10px;'>🎓 {student_name}'s Predicted Score</h3>
-                <h1 style='color:{color}; text-shadow: 0 0 15px {color}, 0 0 30px {color}; font-size:48px; font-weight:bold'>
-                    {i:.0f}%
-                </h1>
-                <h3 style='color:{color}; margin-top:10px;'>{feedback}</h3>
-            </div>
-            """
-            placeholder.markdown(html_content, unsafe_allow_html=True)
-            time.sleep(0.02)
-        
-        # Mark as displayed
-        st.session_state["displayed_prediction"] = True
+        """
+        placeholder.markdown(html_content, unsafe_allow_html=True)
+        time.sleep(0.02)
+    
+    # Mark as displayed
+    st.session_state["displayed_prediction"] = True
+
+def display_static_score(prediction):
+    """Display static score (for already shown predictions)"""
+    color = glow_color(prediction)
+    feedback = feedback_text(prediction)
+    st.markdown(f"""
+    <div style='text-align:center; padding:30px; margin-top:10px; border-radius:15px;
+                background: linear-gradient(135deg, #1f1f2e, #2e2e3e);
+                box-shadow: 0 0 20px {color}, 0 0 40px {color};
+                color:white; position:relative; min-height:120px'>
+        <h1 style='color:{color}; text-shadow: 0 0 15px {color}, 0 0 30px {color}; font-size:48px; font-weight:bold'>
+            {prediction:.1f}%
+        </h1>
+        <h3 style='color:{color}; margin-top:10px;'>{feedback}</h3>
+    </div>
+    """, unsafe_allow_html=True)
+
+def create_progress_chart(score):
+    fig = go.Figure()
+    fig.add_trace(go.Indicator(
+        mode = "gauge+number",
+        value = score,
+        number = {'suffix': "%", 'font': {'size': 40}},
+        domain = {'x': [0, 1], 'y': [0, 1]},
+        gauge = {
+            'axis': {'range': [None, 100], 'tickwidth': 1, 'tickcolor': "white"},
+            'bar': {'color': glow_color(score), 'thickness': 0.3},
+            'bgcolor': "rgba(0,0,0,0)",
+            'borderwidth': 2,
+            'bordercolor': "white",
+            'steps': [
+                {'range': [0, 50], 'color': 'rgba(255, 75, 75, 0.2)'},
+                {'range': [50, 75], 'color': 'rgba(255, 165, 0, 0.2)'},
+                {'range': [75, 85], 'color': 'rgba(76, 175, 80, 0.2)'},
+                {'range': [85, 95], 'color': 'rgba(33, 150, 243, 0.2)'},
+                {'range': [95, 100], 'color': 'rgba(156, 39, 176, 0.2)'}],
+        }
+    ))
+    fig.update_layout(
+        height=300,
+        margin=dict(l=50, r=50, t=50, b=50),
+        paper_bgcolor='rgba(0,0,0,0)',
+        font={'color': "white", 'family': "Arial"}
+    )
+    return fig
 
 def add_timestamp_to_history():
     if st.session_state["history"]:
@@ -347,87 +244,6 @@ def add_timestamp_to_history():
             st.session_state["history"][-1]["Sleep Hours"],
             st.session_state["history"][-1]["Part-time Job"]
         )
-        # Save to persistent storage after adding new entry
-        save_history()
-
-def create_performance_chart(row):
-    """Create a radar chart for student performance"""
-    categories = ['Study Hours', 'Attendance', 'Mental Health', 'Sleep Quality']
-    
-    # Normalize values for radar chart (0-10 scale)
-    study_norm = min(row['Study Hours'] * 2, 10)  # 5h = 10 points
-    attendance_norm = row['Attendance'] / 10       # 100% = 10 points
-    mental_norm = row['Mental Health']             # Already 1-10 scale
-    sleep_norm = 10 if 7 <= row['Sleep Hours'] <= 8 else (
-                 8 if 6 <= row['Sleep Hours'] <= 9 else 5)  # Optimal sleep gets 10
-    
-    values = [study_norm, attendance_norm, mental_norm, sleep_norm]
-    
-    fig = go.Figure()
-    
-    fig.add_trace(go.Scatterpolar(
-        r=values,
-        theta=categories,
-        fill='toself',
-        name='Performance',
-        line=dict(color='#00b4d8'),
-        fillcolor='rgba(0, 180, 216, 0.3)'
-    ))
-    
-    fig.update_layout(
-        polar=dict(
-            radialaxis=dict(
-                visible=True,
-                range=[0, 10]
-            )),
-        showlegend=False,
-        height=300,
-        margin=dict(l=50, r=50, t=50, b=50),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='white')
-    )
-    
-    return fig
-
-def create_factor_impact_chart(row):
-    """Create a bar chart showing impact of each factor"""
-    factors = ['Study Hours', 'Attendance', 'Mental Health', 'Sleep Hours', 'Part-time Job']
-    
-    # Calculate individual impacts (simplified version)
-    study_impact = min(row['Study Hours'] * 8, 40)  # Max 40 points
-    attendance_impact = row['Attendance'] * 0.4     # Max 40 points
-    mental_impact = row['Mental Health'] * 4        # Max 40 points
-    sleep_impact = 20 if 7 <= row['Sleep Hours'] <= 8 else (
-                  10 if 6 <= row['Sleep Hours'] <= 9 else 0)  # Max 20 points
-    job_impact = 10 if row['Part-time Job'] == 'No' else -10  # ±10 points
-    
-    impacts = [study_impact, attendance_impact, mental_impact, sleep_impact, job_impact]
-    colors = ['#4caf50' if x > 0 else '#ff4b4b' for x in impacts]
-    
-    fig = go.Figure(data=[
-        go.Bar(
-            x=factors,
-            y=impacts,
-            marker_color=colors,
-            text=[f"+{x}" if x > 0 else str(x) for x in impacts],
-            textposition='auto',
-        )
-    ])
-    
-    fig.update_layout(
-        title="Factor Impact on Score",
-        xaxis_title="Factors",
-        yaxis_title="Impact Points",
-        height=300,
-        margin=dict(l=50, r=50, t=50, b=50),
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color='white'),
-        xaxis=dict(tickangle=-45)
-    )
-    
-    return fig
 
 def show_simple_analysis(idx):
     """Show simple and understandable analysis for a specific history entry"""
@@ -435,24 +251,57 @@ def show_simple_analysis(idx):
         return
     
     row = st.session_state["history"][idx]
-    student_name = row.get('Student Name', 'Student')
     
     st.markdown(f"""
     <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
                 padding: 20px; border-radius: 15px; margin-bottom: 20px;'>
-        <h2 style='color: white; text-align: center; margin: 0;'>🔍 Detailed Analysis: {student_name}</h2>
+        <h2 style='color: white; text-align: center; margin: 0;'>🔍 Quick Analysis</h2>
     </div>
     """, unsafe_allow_html=True)
     
-    # Student Overview
+    # Score Overview
     col1, col2 = st.columns([2, 1])
     
     with col1:
+        st.markdown("### 📊 Your Score Breakdown")
+        
+        # Simple factor analysis
+        factors = [
+            ("📚 Study Hours", row['Study Hours'], "3-5h optimal"),
+            ("🏫 Attendance", row['Attendance'], "85%+ excellent"),
+            ("🧠 Mental Health", row['Mental Health'], "7+ strong"),
+            ("💤 Sleep Hours", row['Sleep Hours'], "7-8h best"),
+            ("💼 Part-time Job", row['Part-time Job'], "No preferred")
+        ]
+        
+        for factor, value, optimal in factors:
+            if factor == "💼 Part-time Job":
+                status = "🟢 Good" if value == "No" else "🟡 Okay"
+            elif factor == "📚 Study Hours":
+                status = "🟢 Good" if 3 <= value <= 5 else "🟡 Okay" if 2 <= value < 3 else "🔴 Improve"
+            elif factor == "🏫 Attendance":
+                status = "🟢 Good" if value >= 85 else "🟡 Okay" if value >= 75 else "🔴 Improve"
+            elif factor == "🧠 Mental Health":
+                status = "🟢 Good" if value >= 7 else "🟡 Okay" if value >= 5 else "🔴 Improve"
+            elif factor == "💤 Sleep Hours":
+                status = "🟢 Good" if 7 <= value <= 8 else "🟡 Okay" if 6 <= value <= 9 else "🔴 Improve"
+            
+            st.markdown(f"""
+            <div style='background: rgba(255,255,255,0.05); padding: 10px; border-radius: 8px; margin: 5px 0;'>
+                <div style='display: flex; justify-content: between; align-items: center;'>
+                    <span style='color: white; font-weight: bold;'>{factor}</span>
+                    <span style='color: white;'>{value}</span>
+                    <span>{status}</span>
+                </div>
+                <div style='color: #888; font-size: 12px;'>{optimal}</div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    with col2:
         # Score Display
         score_color = glow_color(row['Predicted Score'])
         st.markdown(f"""
-        <div style='text-align: center; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 10px; margin-bottom: 20px;'>
-            <h3 style='color: #00b4d8; margin-bottom: 10px;'>🎓 {student_name}</h3>
+        <div style='text-align: center; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 10px;'>
             <div style='color: {score_color}; font-size: 48px; font-weight: bold;'>
                 {row['Predicted Score']:.1f}%
             </div>
@@ -462,118 +311,60 @@ def show_simple_analysis(idx):
         </div>
         """, unsafe_allow_html=True)
         
-        # Performance Radar Chart
-        st.markdown("### 📊 Performance Radar")
-        radar_fig = create_performance_chart(row)
-        st.plotly_chart(radar_fig, use_container_width=True)
-        
-        # Factor Impact Chart
-        st.markdown("### 📈 Factor Impact Analysis")
-        impact_fig = create_factor_impact_chart(row)
-        st.plotly_chart(impact_fig, use_container_width=True)
-    
-    with col2:
         # Study Profile
         profile = get_study_profile(row['Study Hours'], row['Attendance'], row['Mental Health'], row['Sleep Hours'], row['Part-time Job'])
-        profile_color = "#4caf50" if "High" in profile else "#ffa500" if "Balanced" in profile else "#ff4b4b" if "Support" in profile else "#2196f3"
-        
         st.markdown(f"""
-        <div style='text-align: center; padding: 20px; background: rgba(255,255,255,0.05); border-radius: 10px; margin-bottom: 20px; border: 2px solid {profile_color}'>
-            <h4 style='color: {profile_color}; margin-bottom: 10px;'>Study Profile</h4>
-            <div style='color: {profile_color}; font-weight: bold; font-size: 20px;'>{profile}</div>
+        <div style='text-align: center; padding: 15px; background: rgba(255,255,255,0.05); border-radius: 10px; margin-top: 10px;'>
+            <div style='color: #00b4d8; font-weight: bold;'>{profile}</div>
         </div>
         """, unsafe_allow_html=True)
-        
-        # Quick Stats
-        st.markdown("### 📋 Quick Stats")
-        stats = [
-            ("Overall Score", f"{row['Predicted Score']:.1f}%"),
-            ("Study Hours", f"{row['Study Hours']}h"),
-            ("Attendance", f"{row['Attendance']}%"),
-            ("Mental Health", f"{row['Mental Health']}/10"),
-            ("Sleep Hours", f"{row['Sleep Hours']}h"),
-            ("Part-time Job", row['Part-time Job'])
-        ]
-        
-        for stat, value in stats:
-            st.markdown(f"""
-            <div style='background: rgba(255,255,255,0.05); padding: 8px; border-radius: 6px; margin: 5px 0; text-align: center;'>
-                <div style='color: #00b4d8; font-size: 12px;'>{stat}</div>
-                <div style='color: white; font-weight: bold; font-size: 16px;'>{value}</div>
-            </div>
-            """, unsafe_allow_html=True)
 
-    # Improvement Recommendations
-    st.markdown("### 💡 Improvement Recommendations")
+    # Quick Tips
+    st.markdown("### 💡 Quick Tips to Improve")
     tips = get_study_tips(row['Predicted Score'], row['Study Hours'], row['Attendance'], 
                          row['Mental Health'], row['Sleep Hours'], row['Part-time Job'])
     
-    for i, tip in enumerate(tips[:4], 1):
-        st.markdown(f"{i}. {tip}")
+    for tip in tips[:3]:  # Show only top 3 tips
+        st.markdown(f"• {tip}")
 
-    # Performance Trends (if multiple entries for same student)
-    same_student_entries = [h for h in st.session_state["history"] if h.get('Student Name') == student_name]
-    if len(same_student_entries) > 1:
-        st.markdown("### 📈 Performance Trend")
-        
-        # Create trend data
-        trend_data = []
-        for entry in same_student_entries:
-            if 'Timestamp' in entry:
-                trend_data.append({
-                    'Date': entry['Timestamp'],
-                    'Score': entry['Predicted Score'],
-                    'Study Hours': entry['Study Hours']
-                })
-        
-        if trend_data:
-            trend_df = pd.DataFrame(trend_data)
-            trend_df['Date'] = pd.to_datetime(trend_df['Date'])
-            trend_df = trend_df.sort_values('Date')
-            
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=trend_df['Date'], 
-                y=trend_df['Score'],
-                mode='lines+markers',
-                name='Score Trend',
-                line=dict(color='#00b4d8', width=3),
-                marker=dict(size=8)
-            ))
-            
-            fig.update_layout(
-                title="Score Progress Over Time",
-                xaxis_title="Date",
-                yaxis_title="Predicted Score (%)",
-                height=300,
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='white')
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+    # What's Working Well
+    st.markdown("### ✅ What's Working Well")
+    good_points = []
+    if row['Study Hours'] >= 3:
+        good_points.append(f"Good study routine ({row['Study Hours']}h daily)")
+    if row['Attendance'] >= 80:
+        good_points.append(f"Solid attendance ({row['Attendance']}%)")
+    if row['Mental Health'] >= 6:
+        good_points.append(f"Decent mental health ({row['Mental Health']}/10)")
+    if 7 <= row['Sleep Hours'] <= 8:
+        good_points.append(f"Good sleep habits ({row['Sleep Hours']}h)")
+    if row['Part-time Job'] == "No":
+        good_points.append("No part-time job distraction")
+    
+    if good_points:
+        for point in good_points[:3]:  # Show only top 3 good points
+            st.markdown(f"• {point}")
+    else:
+        st.markdown("• Keep working on building good habits!")
 
     # Close Analysis Button
     if st.button("🔙 Back to History", use_container_width=True):
         st.session_state["analyze_config"] = None
-        st.session_state["displayed_prediction"] = False
         st.rerun()
 
 def show_predictions_table():
     """Show predictions with delete option"""
     for idx, row in enumerate(st.session_state["history"]):
         with st.container():
-            col1, col2, col3, col4, col5 = st.columns([3, 2, 1, 1, 1])
+            col1, col2, col3, col4 = st.columns([3, 2, 1, 1])
             
             with col1:
-                student_name = row.get('Student Name', 'Student')
                 profile = row.get('Study Profile', get_study_profile(
                     row['Study Hours'], row['Attendance'], row['Mental Health'], 
                     row['Sleep Hours'], row['Part-time Job']
                 ))
                 st.markdown(f"""
-                <div style='padding: 12px; background: rgba(255,255,255,0.05); border-radius: 8px; margin: 5px 0;'>
-                    <div style='color: #00b4d8; font-weight: bold; font-size: 16px;'>🎓 {student_name}</div>
+                <div style='padding: 10px; background: rgba(255,255,255,0.05); border-radius: 8px; margin: 5px 0;'>
                     <div style='color: #00b4d8; font-weight: bold;'>{profile}</div>
                     <div style='color: white; font-size: 12px;'>
                         📚 {row['Study Hours']}h • 🏫 {row['Attendance']}% • 🧠 {row['Mental Health']}/10
@@ -584,7 +375,7 @@ def show_predictions_table():
             with col2:
                 score_color = glow_color(row['Predicted Score'])
                 st.markdown(f"""
-                <div style='text-align: center; padding: 12px;'>
+                <div style='text-align: center; padding: 10px;'>
                     <div style='color: {score_color}; font-weight: bold; font-size: 18px;'>
                         {row['Predicted Score']:.1f}%
                     </div>
@@ -600,43 +391,24 @@ def show_predictions_table():
                         st.session_state["favorites"].remove(idx)
                     else:
                         st.session_state["favorites"].append(idx)
-                    save_history()
                     st.rerun()
             
             with col4:
                 if st.button("📊", key=f"analyze_{idx}", help="View detailed analysis"):
                     st.session_state["analyze_config"] = idx
-                    st.session_state["displayed_prediction"] = False
-                    st.rerun()
-            
-            with col5:
-                if st.button("🗑️", key=f"delete_{idx}", help="Delete this entry"):
-                    # Remove from history
-                    st.session_state["history"].pop(idx)
-                    # Remove from favorites if present
-                    if idx in st.session_state["favorites"]:
-                        st.session_state["favorites"].remove(idx)
-                    # Adjust other favorites indices
-                    st.session_state["favorites"] = [
-                        fav_idx if fav_idx < idx else fav_idx - 1 
-                        for fav_idx in st.session_state["favorites"]
-                    ]
-                    save_history()
                     st.rerun()
 
 def show_favorites_section():
     if st.session_state["favorites"]:
-        st.markdown("### ⭐ Favorite Student Profiles")
+        st.markdown("### ⭐ Favorite Study Profiles")
         for fav_idx, idx in enumerate(st.session_state["favorites"]):
             if idx < len(st.session_state["history"]):
                 row = st.session_state["history"][idx]
                 with st.container():
                     col1, col2, col3 = st.columns([3, 2, 1])
                     with col1:
-                        student_name = row.get('Student Name', 'Student')
                         st.markdown(f"""
                         <div style='padding: 15px; background: rgba(255,215,0,0.1); border-radius: 10px; margin: 10px 0; border: 2px solid #FFD700;'>
-                            <div style='color: #FFD700; font-weight: bold; font-size: 16px;'>🎓 {student_name}</div>
                             <div style='color: #FFD700; font-weight: bold;'>{get_study_profile(row['Study Hours'], row['Attendance'], row['Mental Health'], row['Sleep Hours'], row['Part-time Job'])}</div>
                             <div style='color: white; font-size: 14px;'>
                                 📚 {row['Study Hours']}h • 🏫 {row['Attendance']}% • 🧠 {row['Mental Health']}/10
@@ -653,188 +425,113 @@ def show_favorites_section():
                         </div>
                         """, unsafe_allow_html=True)
                     with col3:
-                        if st.button("🗑️", key=f"delete_fav_{fav_idx}", help="Remove from favorites"):
-                            st.session_state["favorites"].remove(idx)
-                            save_history()
+                        if st.button("🔄 Use", key=f"use_fav_{fav_idx}", help="Load this profile"):
+                            st.session_state["study_hours"] = row['Study Hours']
+                            st.session_state["attendance"] = row['Attendance']
+                            st.session_state["mental_health"] = row['Mental Health']
+                            st.session_state["sleep_hours"] = row['Sleep Hours']
+                            st.session_state["part_time_job"] = row['Part-time Job']
+                            st.session_state["prediction_made"] = False
+                            st.session_state["prediction"] = None
+                            st.session_state["displayed_prediction"] = False
                             st.rerun()
     else:
-        st.info("⭐ No favorites yet. Click the star icon to add student profiles to favorites.")
+        st.info("⭐ No favorites yet. Click the star icon to add profiles to favorites.")
 
 def show_comparison_tool():
     """Enhanced comparison tool with better insights"""
     if len(st.session_state["history"]) >= 2:
-        st.markdown("### 🔍 Compare Student Performance")
+        st.markdown("### 🔍 Compare Study Profiles")
         
-        # Get student names for selection
-        student_options = []
+        # Get profile options
+        profile_options = []
         for idx, row in enumerate(st.session_state["history"]):
-            student_name = row.get('Student Name', f'Student {idx+1}')
-            score = row['Predicted Score']
             profile = get_study_profile(row['Study Hours'], row['Attendance'], row['Mental Health'], row['Sleep Hours'], row['Part-time Job'])
-            student_options.append((idx, f"{student_name} - {score:.1f}% ({profile})"))
+            profile_options.append(f"Profile {idx+1}: {row['Predicted Score']:.1f}% ({profile})")
         
         col1, col2 = st.columns(2)
         with col1:
-            profile1_idx = st.selectbox(
-                "Select first student", 
-                range(len(student_options)),
-                format_func=lambda x: student_options[x][1],
-                key="comp1"
-            )
+            profile1_idx = st.selectbox("Select first profile", range(len(profile_options)), format_func=lambda x: profile_options[x])
         with col2:
-            profile2_idx = st.selectbox(
-                "Select second student", 
-                range(len(student_options)),
-                format_func=lambda x: student_options[x][1],
-                index=min(1, len(student_options)-1),
-                key="comp2"
-            )
+            profile2_idx = st.selectbox("Select second profile", range(len(profile_options)), format_func=lambda x: profile_options[x], index=min(1, len(profile_options)-1))
         
         if profile1_idx != profile2_idx:
             row1 = st.session_state["history"][profile1_idx]
             row2 = st.session_state["history"][profile2_idx]
-            student1_name = row1.get('Student Name', 'Student 1')
-            student2_name = row2.get('Student Name', 'Student 2')
             
-            # Comparison Visualization
-            st.markdown("### 📊 Comparison Chart")
+            # Simple comparison table
+            comparison_data = {
+                'Factor': ['Study Hours', 'Attendance', 'Mental Health', 'Sleep', 'Part-time Job', 'Score'],
+                f'Profile {profile1_idx+1}': [
+                    f"{row1['Study Hours']}h", 
+                    f"{row1['Attendance']}%", 
+                    f"{row1['Mental Health']}/10", 
+                    f"{row1['Sleep Hours']}h", 
+                    row1['Part-time Job'], 
+                    f"{row1['Predicted Score']:.1f}%"
+                ],
+                f'Profile {profile2_idx+1}': [
+                    f"{row2['Study Hours']}h", 
+                    f"{row2['Attendance']}%", 
+                    f"{row2['Mental Health']}/10", 
+                    f"{row2['Sleep Hours']}h", 
+                    row2['Part-time Job'], 
+                    f"{row2['Predicted Score']:.1f}%"
+                ]
+            }
             
-            # Create comparison bar chart
-            categories = ['Study Hours', 'Attendance', 'Mental Health', 'Sleep Hours', 'Predicted Score']
-            student1_values = [row1['Study Hours'], row1['Attendance'], row1['Mental Health'], row1['Sleep Hours'], row1['Predicted Score']]
-            student2_values = [row2['Study Hours'], row2['Attendance'], row2['Mental Health'], row2['Sleep Hours'], row2['Predicted Score']]
+            # Create DataFrame and display
+            comparison_df = pd.DataFrame(comparison_data)
+            st.dataframe(comparison_df, use_container_width=True, hide_index=True)
             
-            fig = go.Figure(data=[
-                go.Bar(name=student1_name, x=categories, y=student1_values, marker_color='#00b4d8'),
-                go.Bar(name=student2_name, x=categories, y=student2_values, marker_color='#ffa500')
-            ])
+            # Simple Comparison Summary
+            st.markdown("### 📊 Quick Comparison")
             
-            fig.update_layout(
-                barmode='group',
-                height=400,
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='white'),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # Enhanced Comparison Insights
-            st.markdown("### 💡 Performance Insights")
             score_diff = row2['Predicted Score'] - row1['Predicted Score']
             
-            if abs(score_diff) > 10:
-                if score_diff > 0:
-                    st.success(f"**Significant Advantage**\n\n{student2_name} performs **{score_diff:.1f}% better** than {student1_name}")
-                else:
-                    st.error(f"**Significant Gap**\n\n{student2_name} scores **{abs(score_diff):.1f}% lower** than {student1_name}")
-            elif abs(score_diff) > 5:
-                if score_diff > 0:
-                    st.info(f"**Noticeable Difference**\n\n{student2_name} is **{score_diff:.1f}% ahead** of {student1_name}")
-                else:
-                    st.warning(f"**Moderate Difference**\n\n{student2_name} is **{abs(score_diff):.1f}% behind** {student1_name}")
+            if score_diff > 5:
+                st.success(f"**Profile {profile2_idx+1} scores {score_diff:.1f}% higher**")
+                st.info(f"**Key differences:** Profile {profile2_idx+1} has better study habits or attendance")
+            elif score_diff < -5:
+                st.warning(f"**Profile {profile2_idx+1} scores {abs(score_diff):.1f}% lower**")
+                st.info(f"**Key differences:** Profile {profile1_idx+1} has better factors")
             else:
-                st.success(f"**Close Competition**\n\nBoth students show similar performance levels")
-                    
+                st.info("**Similar performance** - minor differences in study habits")
     else:
-        st.warning("📋 Need at least 2 student profiles to compare. Make more predictions to enable comparison.")
+        st.warning("📋 Need at least 2 study profiles to compare. Make more predictions to enable comparison.")
 
 def show_empty_history():
     st.info("📭 No predictions yet. Make your first prediction to see history here!")
 
-def show_dashboard(student_name, study_hours, attendance, mental_health, sleep_hours, part_time_job):
-    """Display the current student inputs with glowing effects in medium size"""
-    
-    # Create a container for the dashboard
-    with st.container():
-        # Student Info Card with glow - Medium size
-        student_glow = input_glow_color(study_hours, "study_hours")
-        st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #1f1f2e, #2e2e3e); 
-                    padding: 18px; border-radius: 15px; margin-bottom: 15px; 
-                    box-shadow: 0 0 18px {student_glow}, 0 0 35px {student_glow};
-                    text-align: center; border: 2px solid {student_glow};'>
-            <h3 style='color: {student_glow}; margin: 0; text-shadow: 0 0 10px {student_glow}; font-size: 20px;'>🎓 Student Dashboard</h3>
-            <h2 style='color: white; margin: 8px 0; font-size: 22px;'>{student_name}</h2>
+def show_dashboard(study_hours, attendance, mental_health, sleep_hours, part_time_job):
+    dashboard_html = ""
+    inputs = [
+        ("📚 Study Hours", f"{study_hours}h"),
+        ("🏫 Attendance", f"{attendance}%"),
+        ("🧠 Mental Health", f"{mental_health}/10"),
+        ("💤 Sleep Hours", f"{sleep_hours}h"),
+        ("💼 Part-time Job", part_time_job)
+    ]
+    for label, value in inputs:
+        dashboard_html += f"""
+        <div style='background:#2e2e3e; border-radius:12px; padding:10px; margin-bottom:8px;
+                    box-shadow: 0 0 10px #00b4d8, 0 0 15px #00b4d8; text-align:center;'>
+            <h5 style='color:#00b4d8; margin:0'>{label}</h5>
+            <p style='font-size:18px; color:white; font-weight:bold; margin:0'>{value}</p>
         </div>
-        """, unsafe_allow_html=True)
-        
-        # Medium grid layout - 2 columns, comfortable spacing
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Study Hours - Medium size
-            study_glow = input_glow_color(study_hours, "study_hours")
-            st.markdown(f"""
-            <div style='background: linear-gradient(135deg, #1f1f2e, #2e2e3e); 
-                        padding: 16px; border-radius: 12px; margin-bottom: 12px;
-                        box-shadow: 0 0 15px {study_glow}, 0 0 30px {study_glow};
-                        border: 2px solid {study_glow}; text-align: center; height: 110px; display: flex; flex-direction: column; justify-content: center;'>
-                <div style='color: {study_glow}; margin: 0; text-shadow: 0 0 8px {study_glow}; font-size: 16px; font-weight: bold;'>📚 Study Hours</div>
-                <div style='color: white; margin: 5px 0; font-size: 24px; font-weight: bold;'>{study_hours}h</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Attendance - Medium size
-            attendance_glow = input_glow_color(attendance, "attendance")
-            st.markdown(f"""
-            <div style='background: linear-gradient(135deg, #1f1f2e, #2e2e3e); 
-                        padding: 16px; border-radius: 12px; margin-bottom: 12px;
-                        box-shadow: 0 0 15px {attendance_glow}, 0 0 30px {attendance_glow};
-                        border: 2px solid {attendance_glow}; text-align: center; height: 110px; display: flex; flex-direction: column; justify-content: center;'>
-                <div style='color: {attendance_glow}; margin: 0; text-shadow: 0 0 8px {attendance_glow}; font-size: 16px; font-weight: bold;'>🏫 Attendance</div>
-                <div style='color: white; margin: 5px 0; font-size: 24px; font-weight: bold;'>{attendance}%</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            # Mental Health - Medium size
-            mental_glow = input_glow_color(mental_health, "mental_health")
-            st.markdown(f"""
-            <div style='background: linear-gradient(135deg, #1f1f2e, #2e2e3e); 
-                        padding: 16px; border-radius: 12px; margin-bottom: 12px;
-                        box-shadow: 0 0 15px {mental_glow}, 0 0 30px {mental_glow};
-                        border: 2px solid {mental_glow}; text-align: center; height: 110px; display: flex; flex-direction: column; justify-content: center;'>
-                <div style='color: {mental_glow}; margin: 0; text-shadow: 0 0 8px {mental_glow}; font-size: 16px; font-weight: bold;'>🧠 Mental Health</div>
-                <div style='color: white; margin: 5px 0; font-size: 24px; font-weight: bold;'>{mental_health}/10</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Sleep Hours - Medium size
-            sleep_glow = input_glow_color(sleep_hours, "sleep_hours")
-            st.markdown(f"""
-            <div style='background: linear-gradient(135deg, #1f1f2e, #2e2e3e); 
-                        padding: 16px; border-radius: 12px; margin-bottom: 12px;
-                        box-shadow: 0 0 15px {sleep_glow}, 0 0 30px {sleep_glow};
-                        border: 2px solid {sleep_glow}; text-align: center; height: 110px; display: flex; flex-direction: column; justify-content: center;'>
-                <div style='color: {sleep_glow}; margin: 0; text-shadow: 0 0 8px {sleep_glow}; font-size: 16px; font-weight: bold;'>💤 Sleep Hours</div>
-                <div style='color: white; margin: 5px 0; font-size: 24px; font-weight: bold;'>{sleep_hours}h</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        # Part-time Job - Medium size single row
-        job_glow = input_glow_color(part_time_job, "part_time_job")
-        st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #1f1f2e, #2e2e3e); 
-                    padding: 16px; border-radius: 12px; margin-top: 8px;
-                    box-shadow: 0 0 15px {job_glow}, 0 0 30px {job_glow};
-                    border: 2px solid {job_glow}; text-align: center;'>
-            <div style='color: {job_glow}; margin: 0; text-shadow: 0 0 8px {job_glow}; font-size: 16px; font-weight: bold;'>💼 Part-time Job</div>
-            <div style='color: white; margin: 5px 0; font-size: 22px; font-weight: bold;'>{part_time_job}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        """
+    st.markdown(dashboard_html, unsafe_allow_html=True)
 
 def show_enhanced_history_section():
     if st.session_state["history"]:
         st.markdown("""
         <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
                     padding: 20px; border-radius: 15px; margin-bottom: 20px;'>
-            <h2 style='color: white; text-align: center; margin: 0;'>📜 Student Prediction History</h2>
+            <h2 style='color: white; text-align: center; margin: 0;'>📜 Prediction History</h2>
         </div>
         """, unsafe_allow_html=True)
         
-        tab1, tab2, tab3 = st.tabs(["📋 All Students", "⭐ Favorites", "🔍 Compare Students"])
+        tab1, tab2, tab3 = st.tabs(["📋 All Predictions", "⭐ Favorites", "🔍 Compare"])
         
         with tab1:
             show_predictions_table()
@@ -852,20 +549,17 @@ st.markdown("<h1 style='text-align:center; color:#00b4d8;'>📊 Student Exam Sco
 if st.session_state["analyze_config"] is not None:
     show_simple_analysis(st.session_state["analyze_config"])
 else:
-    # Balanced column ratios for medium dashboard
-    col_inputs, col_dashboard = st.columns([2, 1])
+    col_inputs, col_dashboard = st.columns([2,1])
 
     with col_inputs:
         st.markdown("<h3 style='color:#00b4d8;'>📝 Student Profile</h3>", unsafe_allow_html=True)
         
+        # Initialize session state with defaults if not exists
         for k, v in defaults.items():
             if k not in st.session_state:
                 st.session_state[k] = v
         
-        # Student Name Input
-        student_name = st.text_input("🎓 Student Name", value=st.session_state["student_name"], 
-                                   placeholder="Enter student name")
-        
+        # Get current values from session state
         study_hours = st.slider("📚 Study Hours per day", 0.0, 12.0, float(st.session_state["study_hours"]), 0.5)
         attendance = st.slider("🏫 Attendance (%)", 0, 100, int(st.session_state["attendance"]), 1)
         mental_health = st.slider("🧠 Mental Health (1-10)", 1, 10, int(st.session_state["mental_health"]), 1)
@@ -874,7 +568,7 @@ else:
         part_time_index = 0 if st.session_state["part_time_job"] == "No" else 1
         part_time_job = st.selectbox("💼 Do you have a Part-time Job?", ["No","Yes"], index=part_time_index)
         
-        st.session_state["student_name"] = student_name
+        # Update session state
         st.session_state["study_hours"] = study_hours
         st.session_state["attendance"] = attendance
         st.session_state["mental_health"] = mental_health
@@ -883,77 +577,75 @@ else:
         
         part_time_binary = 1 if part_time_job=="Yes" else 0
 
+        # Buttons
         col1, col2, col3 = st.columns(3)
         
-        # Prediction button - always show when no prediction is made
-        if not st.session_state["prediction_made"]:
-            if col1.button("🎯 Predict Score", use_container_width=True, type="primary"):
-                with st.spinner("🔮 Predicting score..."):
-                    time.sleep(1)
-                    input_data = np.array([[study_hours, attendance, mental_health, sleep_hours, part_time_binary]])
-                    prediction = model.predict(input_data)[0]
-                    prediction = max(0, min(100, round(prediction, 1)))
-                    st.session_state["prediction"] = prediction
-                    st.session_state["prediction_made"] = True
+        with col1:
+            if not st.session_state["prediction_made"]:
+                if st.button("🎯 Predict Score", use_container_width=True, type="primary"):
+                    with st.spinner("🔮 Predicting your score..."):
+                        time.sleep(1)
+                        input_data = np.array([[study_hours, attendance, mental_health, sleep_hours, part_time_binary]])
+                        prediction = model.predict(input_data)[0]
+                        prediction = max(0, min(100, round(prediction, 1)))
+                        st.session_state["prediction"] = prediction
+                        st.session_state["prediction_made"] = True
+                        st.session_state["displayed_prediction"] = False
+                        
+                        # Add to history
+                        st.session_state["history"].append({
+                            "Study Hours": study_hours,
+                            "Attendance": attendance,
+                            "Mental Health": mental_health,
+                            "Sleep Hours": sleep_hours,
+                            "Part-time Job": part_time_job,
+                            "Predicted Score": prediction
+                        })
+                        add_timestamp_to_history()
+                        
+                        # Trigger rerun to show prediction
+                        st.rerun()
+            else:
+                if st.button("🔄 Predict Again", use_container_width=True):
+                    # Reset to defaults
+                    for k, v in defaults.items():
+                        st.session_state[k] = v
+                    st.session_state["prediction"] = None
+                    st.session_state["prediction_made"] = False
+                    st.session_state["show_history"] = False
+                    st.session_state["analyze_config"] = None
                     st.session_state["displayed_prediction"] = False
-                    
-                    # Add to history
-                    st.session_state["history"].append({
-                        "Student Name": student_name,
-                        "Study Hours": study_hours,
-                        "Attendance": attendance,
-                        "Mental Health": mental_health,
-                        "Sleep Hours": sleep_hours,
-                        "Part-time Job": part_time_job,
-                        "Predicted Score": prediction
-                    })
-                    add_timestamp_to_history()
-                    
-                    # Trigger balloons for this prediction
-                    st.session_state["show_balloons"] = True
                     st.rerun()
-        else:
-            if col1.button("🔄 Predict Again", use_container_width=True):
-                for k, v in defaults.items():
-                    st.session_state[k] = v
-                st.session_state["prediction"] = None
-                st.session_state["prediction_made"] = False
-                st.session_state["show_history"] = False
-                st.session_state["analyze_config"] = None
-                st.session_state["displayed_prediction"] = False
-                st.session_state["show_balloons"] = False
+        
+        with col2:
+            history_text = "📜 Hide History" if st.session_state["show_history"] else "📜 View History"
+            if st.button(history_text, use_container_width=True):
+                st.session_state["show_history"] = not st.session_state["show_history"]
                 st.rerun()
         
-        # Always show history button
-        history_text = "📜 Hide History" if st.session_state["show_history"] else "📜 View History"
-        if col2.button(history_text, use_container_width=True):
-            st.session_state["show_history"] = not st.session_state["show_history"]
-            st.rerun()
-        
-        # Clear history button
-        if col3.button("🗑️ Clear All History", use_container_width=True):
-            st.session_state["history"] = []
-            st.session_state["favorites"] = []
-            st.session_state["displayed_prediction"] = False
-            st.session_state["show_balloons"] = False
-            save_history()
-            st.rerun()
+        with col3:
+            if st.button("🗑️ Clear History", use_container_width=True):
+                st.session_state["history"] = []
+                st.session_state["favorites"] = []
+                st.rerun()
 
     with col_dashboard:
-        show_dashboard(student_name, study_hours, attendance, mental_health, sleep_hours, part_time_job)
+        st.markdown("<h3 style='color:#00b4d8;'>📊 Dashboard</h3>", unsafe_allow_html=True)
+        show_dashboard(study_hours, attendance, mental_health, sleep_hours, part_time_job)
 
     # ----------------- PREDICTION DISPLAY ----------------- #
     if st.session_state["prediction_made"] and st.session_state["prediction"] is not None:
         prediction = st.session_state["prediction"]
-        display_countup_score(prediction, student_name)
         
-        # Show balloons only when triggered by prediction button
-        if st.session_state["show_balloons"]:
+        # Show animation only on first display
+        if not st.session_state["displayed_prediction"]:
+            display_countup_score(prediction)
             st.balloons()
-            st.session_state["show_balloons"] = False  # Reset after showing
+        else:
+            display_static_score(prediction)
         
         st.markdown("---")
-        st.markdown(f"<h3 style='color:#00b4d8;'>💡 Personalized Tips for {student_name}</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color:#00b4d8;'>💡 Quick Tips</h3>", unsafe_allow_html=True)
         tips = get_study_tips(prediction, study_hours, attendance, mental_health, sleep_hours, part_time_job)
         for tip in tips:
             st.markdown(f"- {tip}")
@@ -964,11 +656,4 @@ else:
 
 # ----------------- FOOTER ----------------- #
 st.divider()
-st.markdown("""
-<div style='text-align:center; color:#888;'>
-    <p>👨‍💻 Developed by Karthikeya PV | 📊 Student Performance Predictor</p>
-    <p><b>Disclaimer:</b> This tool provides estimated exam scores based on input factors and is for educational purposes only. Actual scores may vary.</p>
-    <p> made using linear regression model.</p>
-    
-</div>
-""", unsafe_allow_html=True)
+st.markdown("<div style='text-align:center; color:#888;'><p>👨‍💻 Developed by Ujwal | 📊 Student Performance Predictor</p></div>", unsafe_allow_html=True)
