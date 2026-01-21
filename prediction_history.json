@@ -1,0 +1,67 @@
+{
+  "history": [
+    {
+      "Study Hours": 3.0,
+      "Attendance": 75,
+      "Mental Health": 6,
+      "Sleep Hours": 6.0,
+      "Part-time Job": "Yes",
+      "Predicted Score": 63.3,
+      "Timestamp": "2025-10-25 21:34:15",
+      "Study Profile": "\ud83d\udcca Average Performer"
+    },
+    {
+      "Study Hours": 2.0,
+      "Attendance": 60,
+      "Mental Health": 4,
+      "Sleep Hours": 6.0,
+      "Part-time Job": "Yes",
+      "Predicted Score": 47.7,
+      "Timestamp": "2025-10-25 21:42:18",
+      "Study Profile": "\ud83d\udcaa Needs Support"
+    },
+    {
+      "Study Hours": 4.0,
+      "Attendance": 85,
+      "Mental Health": 7,
+      "Sleep Hours": 7.0,
+      "Part-time Job": "No",
+      "Predicted Score": 78.2,
+      "Timestamp": "2025-10-25 21:42:58",
+      "Study Profile": "\u26a1 Balanced Student"
+    },
+    {
+      "Study Hours": 2.0,
+      "Attendance": 80,
+      "Mental Health": 6,
+      "Sleep Hours": 7.0,
+      "Part-time Job": "No",
+      "Predicted Score": 56.4,
+      "Timestamp": "2025-10-25 21:46:10",
+      "Study Profile": "\ud83d\udcca Average Performer"
+    },
+    {
+      "Student Name": "sadhik",
+      "Study Hours": 4.0,
+      "Attendance": 80,
+      "Mental Health": 5,
+      "Sleep Hours": 7.0,
+      "Part-time Job": "No",
+      "Predicted Score": 73.6,
+      "Timestamp": "2025-10-25 22:10:32",
+      "Study Profile": "\ud83d\udcca Average Performer"
+    },
+    {
+      "Student Name": "ujwal",
+      "Study Hours": 7.0,
+      "Attendance": 77,
+      "Mental Health": 7,
+      "Sleep Hours": 7.0,
+      "Part-time Job": "No",
+      "Predicted Score": 100,
+      "Timestamp": "2025-10-25 22:27:48",
+      "Study Profile": "\ud83d\udcca Average Performer"
+    }
+  ],
+  "favorites": []
+}
